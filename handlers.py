@@ -118,10 +118,6 @@ async def log_water(message: Message, command: CommandObject):
     water_consumed = int(command.args)
     users_ds.get(message.from_user.id)["logged_water"] += water_consumed    
 
-@router.message(Command("show_users"))
-async def show_users(message: Message):
-    await message.answer(f"users_ds: {users_ds}")
-
 # Функция для подключения обработчиков
 def setup_handlers(dp):
     dp.include_router(router)
