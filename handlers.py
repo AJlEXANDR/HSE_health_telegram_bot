@@ -3,7 +3,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from states import Form
-import aiohttp
+from utils import translate_rus_to_eng, get_workout, get_food_info
 
 router = Router()
 
@@ -25,6 +25,7 @@ async def cmd_help(message: Message):
         "/log_food - Логирование еды\n"
         "/log_workout - Логирование тренировок\n"
         "/check_progress - Прогресс по воде и калориям\n"
+        "/show_users - Тестовая ручка для посмотра информации о пользователях"
     )
 
 # FSM: диалог с пользователем для внесения информации о нем
@@ -115,8 +116,61 @@ async def log_water(message: Message, command: CommandObject):
         )
         return
     
-    water_consumed = int(command.args)
-    users_ds.get(message.from_user.id)["logged_water"] += water_consumed    
+    users_ds.get(message.from_user.id)["logged_water"] += water_consumed
+
+# Логирование еды
+@router.message(Command("log_food"))
+async def log_water(message: Message, command: CommandObject):
+    if command.args is None:
+        await message.answer(
+            "Ошибка: не переданы аргументы"
+        )
+        return
+
+    try:
+        product, gramms = command.args.split(" ", maxsplit=1)
+    except:
+        await message.answer(
+            "Ошибка: неправильный формат ввода количества еды. Пример:\n"
+            "/log_water <еда, которую вы съели> <количество съеденной еды в граммах>"
+        )
+        return
+
+    if not gramms.isdigit():
+        await message.answer(
+            "Ошибка: неправильный формат ввода количества еды. Пример:\n"
+            "/log_water банан 150"
+        )
+        return
+    
+    gramms = int(gramms)
+    if gramms <= 0:
+        await message.answer(
+            "Ошибка: Количество съеденной еды должно быть > 0"
+        )
+        return
+    
+    if message.from_user.id not in users_ds:
+        await message.answer(
+            "Ошибка: Пользователь не занесен в базу данных.\n"
+            "Внесите данные и повторите попытку"
+        )
+        return
+
+    eng_product = await translate_rus_to_eng(product)
+    product_info = await get_food_info(eng_product)
+    
+    user_cons_cal = (product_info['calories']*gramms)/100
+    users_ds.get(message.from_user.id)["logged_calories"] += user_cons_cal
+
+    await message.answer(
+        f"{product} - {product_info['calories']} ккал. на 100 г.\n"
+        f"Было потреблено {user_cons_cal} ккал."
+        )
+    
+@router.message(Command("show_users"))
+async def show_users(message: Message):
+    await message.answer(f"users_ds: {users_ds}")
 
 # Функция для подключения обработчиков
 def setup_handlers(dp):
