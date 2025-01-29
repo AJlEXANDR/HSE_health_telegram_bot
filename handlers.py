@@ -3,7 +3,8 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from states import Form
-from utils import translate_rus_to_eng, get_workout, get_food_info
+from utils import translate_rus_to_eng, get_workout, get_food_info, get_food_data, get_workout_data
+from config import CALORIES_TOKEN, NUTRIONIX_APP_ID, NUTRIONIX_API_KEY
 
 router = Router()
 
@@ -25,7 +26,6 @@ async def cmd_help(message: Message):
         "/log_food - Логирование еды\n"
         "/log_workout - Логирование тренировок\n"
         "/check_progress - Прогресс по воде и калориям\n"
-        "/show_users - Тестовая ручка для посмотра информации о пользователях"
     )
 
 # FSM: диалог с пользователем для внесения информации о нем
@@ -118,6 +118,10 @@ async def log_water(message: Message, command: CommandObject):
     
     users_ds.get(message.from_user.id)["logged_water"] += water_consumed
 
+    await message.answer(
+        f"Выпито {water_consumed} мл. воды\n"
+        )
+
 # Логирование еды
 @router.message(Command("log_food"))
 async def log_water(message: Message, command: CommandObject):
@@ -132,14 +136,14 @@ async def log_water(message: Message, command: CommandObject):
     except:
         await message.answer(
             "Ошибка: неправильный формат ввода количества еды. Пример:\n"
-            "/log_water <еда, которую вы съели> <количество съеденной еды в граммах>"
+            "/log_food <еда, которую вы съели> <количество съеденной еды в граммах>"
         )
         return
 
     if not gramms.isdigit():
         await message.answer(
             "Ошибка: неправильный формат ввода количества еды. Пример:\n"
-            "/log_water банан 150"
+            "/log_food банан 123"
         )
         return
     
@@ -157,20 +161,117 @@ async def log_water(message: Message, command: CommandObject):
         )
         return
 
+    product = product.lower()
     eng_product = await translate_rus_to_eng(product)
-    product_info = await get_food_info(eng_product)
+
+    # product_info = await get_food_info(eng_product)
+    # user_cons_cal = (product_info['calories']*gramms)/100
     
-    user_cons_cal = (product_info['calories']*gramms)/100
+    product_info = await get_food_data(eng_product, 
+                                       NUTRIONIX_APP_ID, 
+                                       NUTRIONIX_API_KEY)
+    product_cal = product_info["foods"][0]["nf_calories"]
+    
+    user_cons_cal = (product_cal*gramms)/100
     users_ds.get(message.from_user.id)["logged_calories"] += user_cons_cal
 
     await message.answer(
-        f"{product} - {product_info['calories']} ккал. на 100 г.\n"
+        f"{product} - {product_cal} ккал. на 100 г.\n"
         f"Было потреблено {user_cons_cal} ккал."
         )
     
-@router.message(Command("show_users"))
-async def show_users(message: Message):
-    await message.answer(f"users_ds: {users_ds}")
+# Логирование тренировок
+@router.message(Command("log_workout"))
+async def log_workout(message: Message, command: CommandObject):
+    if command.args is None:
+        await message.answer(
+            "Ошибка: не переданы аргументы"
+        )
+        return
+
+    try:
+        train_type, duration = command.args.split(" ", maxsplit=1)
+    except:
+        await message.answer(
+            "Ошибка: неправильный формат ввода тренировки. Пример:\n"
+            "/log_workout <тип тренировки> <время (мин)>"
+        )
+        return
+
+    if not duration.isdigit():
+        await message.answer(
+            "Ошибка: неправильный формат ввода времени тренировки. Пример:\n"
+            "/log_workout отжимания 5"
+        )
+        return
+    
+    duration = int(duration)
+    if duration <= 0:
+        await message.answer(
+            "Ошибка: Время тренировки должно быть > 0"
+        )
+        return
+    
+    if message.from_user.id not in users_ds:
+        await message.answer(
+            "Ошибка: Пользователь не занесен в базу данных.\n"
+            "Внесите данные и повторите попытку"
+        )
+        return
+
+    train_type = train_type.lower()
+    eng_train_type = await translate_rus_to_eng(train_type)
+
+    # burned_calories = await get_workout(eng_train_type, duration, CALORIES_TOKEN)
+    # water_needed = (200*duration)/30
+
+    train_info = await get_workout_data(duration, 
+                                        eng_train_type, 
+                                        NUTRIONIX_APP_ID, 
+                                        NUTRIONIX_API_KEY)
+    burned_calories = train_info['exercises'][0]['nf_calories']
+    water_needed = (200*duration)/30
+    
+    users_ds.get(message.from_user.id)["burned_calories"] += burned_calories
+
+    await message.answer(
+        f"{train_type} {duration} минут - {burned_calories} ккал.\n"
+        f"Дополнительно: выпейте {water_needed} мл воды."
+        )
+    
+@router.message(Command("check_progress"))
+async def check_progress(message: Message):
+    if message.from_user.id not in users_ds:
+        await message.answer(
+            "Ошибка: Пользователь не занесен в базу данных.\n"
+            "Внесите данные и повторите попытку"
+        )
+        return
+
+    user_id = message.from_user.id
+
+    water_goal = users_ds.get(user_id)["water_goal"]
+    logged_water = users_ds.get(user_id)["logged_water"]
+    if water_goal > logged_water:
+        remaining_water = water_goal - logged_water
+    else:
+        remaining_water = 0
+
+    calorie_goal = users_ds.get(user_id)["calorie_goal"]
+    logged_calories = users_ds.get(user_id)["logged_calories"]
+    burned_calories = users_ds.get(user_id)["burned_calories"]
+    calories_balance = logged_calories - burned_calories
+
+    await message.answer(
+        "📊 Прогресс:\n"
+        "Вода\n"
+        f"- Выпито: {logged_water} мл. из {water_goal}\n"
+        f"- Осталось: {remaining_water} мл.\n"
+        "\nКалории:\n"
+        f"- Потреблено: {logged_calories} ккал. из {calorie_goal} ккал.\n"
+        f"- Сожжено: {burned_calories} ккал.\n"
+        f"- Баланс: {calories_balance} ккал."
+    )
 
 # Функция для подключения обработчиков
 def setup_handlers(dp):
