@@ -1,6 +1,30 @@
 import aiohttp
 from googletrans import Translator
 
+async def get_current_temperature(city, weather_api_key):
+    base_url = "http://api.openweathermap.org/data/2.5/weather"
+    params = {
+        'q': city,
+        'appid': weather_api_key,
+        'units': 'metric'
+    }
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url=base_url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data['main']['temp']
+                else:
+                    print(f"Ошибка HTTP: {response.status}")
+                    return None
+        except aiohttp.ClientError as e:
+            print(f"Ошибка HTTP при получении информации о погоде: {e}")
+            return None
+        except Exception as err:
+            print(f"Произошла ошибка: {err}")
+            return None
+
 async def translate_rus_to_eng(rus_text: str) -> str:
      async with Translator() as translator:
          translation_result = await translator.translate(rus_text, src='ru', dest='en')
