@@ -1,10 +1,15 @@
+import re
 from aiogram import Router
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from states import Form
-from utils import translate_rus_to_eng, get_workout, get_food_info, get_food_data, get_workout_data
-from config import CALORIES_TOKEN, NUTRIONIX_APP_ID, NUTRIONIX_API_KEY
+from utils import get_current_temperature, translate_rus_to_eng, get_food_data, get_workout_data
+from config import NUTRIONIX_APP_ID, NUTRIONIX_API_KEY, OPENWEATHERMAP_API_KEY
+from supports import calc_water_goal, calc_calorie_goal, calc_calorie_consumption, water_requierement
+
+city_pattern = r'\b[a-zа-я][a-zа-я]*(?:-[a-zа-я][a-zа-я]*)?\b'
+comp_city_patt = re.compile(city_pattern, re.IGNORECASE)
 
 router = Router()
 
@@ -36,55 +41,107 @@ async def start_form(message: Message, state: FSMContext):
 
 @router.message(Form.weight)
 async def process_weight(message: Message, state: FSMContext):
-    await state.update_data(weight=message.text)
-    await message.reply("Введите ваш рост (в см):")
-    await state.set_state(Form.height)
+    if not message.text.isdigit():
+        await message.answer(
+            "Ошибка: неправильный формат для веса.\n"
+            "Укажмите ваш вес в формате числа"
+        )
+        return
+    else:
+        await state.update_data(weight=message.text)
+        await message.reply("Введите ваш рост (в см):")
+        await state.set_state(Form.height)
 
 @router.message(Form.height)
 async def process_height(message: Message, state: FSMContext):
-    await state.update_data(height=message.text)
-    await message.reply("Введите ваш возраст:")
-    await state.set_state(Form.age)
+    if not message.text.isdigit():
+        await message.answer(
+            "Ошибка: неправильный формат для роста.\n"
+            "Укажмите ваш роста в формате числа"
+        )
+        return
+    else:
+        await state.update_data(height=message.text)
+        await message.reply("Введите ваш возраст:")
+        await state.set_state(Form.age)
 
 @router.message(Form.age)
 async def process_age(message: Message, state: FSMContext):
-    await state.update_data(age=message.text)
-    await message.reply("Сколько минут активности у вас в день?")
-    await state.set_state(Form.activity)
+    if not message.text.isdigit():
+        await message.answer(
+            "Ошибка: неправильный формат для возраста.\n"
+            "Укажмите ваш возраст в формате числа"
+        )
+        return
+    else:
+        await state.update_data(age=message.text)
+        await message.reply("Сколько минут активности у вас в день?")
+        await state.set_state(Form.activity)
 
 @router.message(Form.activity)
 async def process_activity(message: Message, state: FSMContext):
-    await state.update_data(activity=message.text)
-    await message.reply("В каком городе вы находитесь?")
-    await state.set_state(Form.location)
+    if not message.text.isdigit():
+        await message.answer(
+            "Ошибка: неправильный формат для параметра мин. активности/день.\n"
+            "Укажмите мин. активности/день возраст в формате числа"
+        )
+        return
+    else:
+        await state.update_data(activity=message.text)
+        await message.reply("В каком городе вы находитесь?")
+        await state.set_state(Form.location)
 
 @router.message(Form.location)
 async def process_location(message: Message, state: FSMContext):
-    data = await state.get_data()
-    print(f'data: {data}')
-    weight = int(data.get("weight"))
-    height = int(data.get("height"))
-    age = int(data.get("age"))
-    activity = int(data.get("activity"))
-    location = message.text
+    if comp_city_patt.match(message.text):
+        data = await state.get_data()
+        weight = int(data.get("weight"))
+        height = int(data.get("height"))
+        age = int(data.get("age"))
+        activity = int(data.get("activity"))
+        location = message.text
 
-    new_user_info = {
-        "weight": weight,
-        "height": height,
-        "age": age,
-        "activity": activity,
-        "city": location,
-        "water_goal": weight * 30 + 500 * int(activity)//30 + 500,
-        "calorie_goal": 10 * weight + 6.25 * height - 5 * age,
-        "logged_water": 0,
-        "logged_calories": 0,
-        "burned_calories": 0,
+        user_loc_temp = await get_current_temperature(location, OPENWEATHERMAP_API_KEY)
 
-    }
-    users_ds.update({message.from_user.id: new_user_info})
-    print(f"users_ds: {users_ds}")
-    await message.reply(f"Информация о пользователе записана")
-    await state.clear()
+        logged_water, logged_calories, burned_calories = 0, 0, 0
+
+        new_user_info = {
+            "weight": weight,
+            "height": height,
+            "age": age,
+            "activity": activity,
+            "city": location,
+            "water_goal": calc_water_goal(weight, activity, user_loc_temp),
+            "calorie_goal": calc_calorie_goal(weight, height, age),
+            "logged_water": logged_water,
+            "logged_calories": logged_calories,
+            "burned_calories": burned_calories,
+
+        }
+        users_ds.update({message.from_user.id: new_user_info})
+        
+
+        await message.answer(
+            "✅ Профиль успешно настроен!\n"
+            f"Вес: {weight} кг\n"
+            f"Рост: {height} см\n"
+            f"Возраст: {age} лет\n"
+            f"Активность: {activity} минут\n"
+            f"Город: {location}\n"
+            f"Норма воды: {calc_water_goal(weight, activity, user_loc_temp)} мл\n"
+            f"Цель по калориям: {calc_calorie_goal(weight, height, age)} ккал\n"
+            f"Выпито воды: {logged_water} мл\n"
+            f"Потреблено калорий: {logged_calories} ккал\n"
+            f"Сожжено калорий: {burned_calories} ккал\n"
+        )
+        await state.clear()
+
+    else:
+        await message.answer(
+            "Ошибка: неправильный формат для города вашего проживания.\n"
+            "Укажмите город вашего проживания в текстовом формате"
+        )
+        return
 
 # Логирование воды
 @router.message(Command("log_water"))
@@ -163,16 +220,13 @@ async def log_water(message: Message, command: CommandObject):
 
     product = product.lower()
     eng_product = await translate_rus_to_eng(product)
-
-    # product_info = await get_food_info(eng_product)
-    # user_cons_cal = (product_info['calories']*gramms)/100
     
     product_info = await get_food_data(eng_product, 
                                        NUTRIONIX_APP_ID, 
                                        NUTRIONIX_API_KEY)
     product_cal = product_info["foods"][0]["nf_calories"]
     
-    user_cons_cal = (product_cal*gramms)/100
+    user_cons_cal = calc_calorie_consumption(product_cal, gramms)
     users_ds.get(message.from_user.id)["logged_calories"] += user_cons_cal
 
     await message.answer(
@@ -222,15 +276,12 @@ async def log_workout(message: Message, command: CommandObject):
     train_type = train_type.lower()
     eng_train_type = await translate_rus_to_eng(train_type)
 
-    # burned_calories = await get_workout(eng_train_type, duration, CALORIES_TOKEN)
-    # water_needed = (200*duration)/30
-
     train_info = await get_workout_data(duration, 
                                         eng_train_type, 
                                         NUTRIONIX_APP_ID, 
                                         NUTRIONIX_API_KEY)
     burned_calories = train_info['exercises'][0]['nf_calories']
-    water_needed = (200*duration)/30
+    water_needed = water_requierement(duration)
     
     users_ds.get(message.from_user.id)["burned_calories"] += burned_calories
 
@@ -253,18 +304,18 @@ async def check_progress(message: Message):
     water_goal = users_ds.get(user_id)["water_goal"]
     logged_water = users_ds.get(user_id)["logged_water"]
     if water_goal > logged_water:
-        remaining_water = water_goal - logged_water
+        remaining_water = round(water_goal - logged_water)
     else:
         remaining_water = 0
 
     calorie_goal = users_ds.get(user_id)["calorie_goal"]
-    logged_calories = users_ds.get(user_id)["logged_calories"]
-    burned_calories = users_ds.get(user_id)["burned_calories"]
-    calories_balance = logged_calories - burned_calories
+    logged_calories = round(users_ds.get(user_id)["logged_calories"])
+    burned_calories = round(users_ds.get(user_id)["burned_calories"])
+    calories_balance = round(logged_calories - burned_calories)
 
     await message.answer(
         "📊 Прогресс:\n"
-        "Вода\n"
+        "Вода:\n"
         f"- Выпито: {logged_water} мл. из {water_goal}\n"
         f"- Осталось: {remaining_water} мл.\n"
         "\nКалории:\n"
