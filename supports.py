@@ -1,7 +1,7 @@
 def calc_water_goal(weight, activity, temp):
     water_goal = weight * 30 + (500*activity)/30 + 500
     if temp > 25:
-        water_goal -= 1000
+        water_goal += 1000
     return round(water_goal)
 
 def calc_calorie_goal(weight, height, age):
