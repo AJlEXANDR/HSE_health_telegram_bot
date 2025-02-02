@@ -75,7 +75,6 @@ async def cmd_help(message: Message):
         "/log_food <название продукта> <количество грамм> - Рассчитывает количество поглощённых калорий по названию продукта и добавляет в профиль\n"
         "/log_workout <тип тренировки> <время (мин)> - Рассчитывает сожжённые калории и учитывает расход воды на тренировке\n"
         "/check_progress - Выводит информацию по тому, сколько воды и калорий потреблено, сожжено и сколько осталось до выполнения цели на текущие сутки\n"
-        "/show_users - TEST FOR DEV"
     )
 
 
@@ -388,12 +387,6 @@ async def check_progress(message: Message):
         f"- Сожжено: {burned_calories} ккал.\n"
         f"- Баланс: {calories_balance} ккал."
     )
-
-
-@router.message(Command("show_users"))
-async def show_users(message: Message):
-    await message.answer(f"users_ds: {users_ds}")
-    await message.answer(f"users_daily_records: {users_daily_records}")
 
 
 # Функция для подключения обработчиков
